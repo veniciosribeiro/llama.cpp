@@ -24,8 +24,17 @@ public:
      * @brief Construtor
      * @param n_bits Número de bits para quantização angular (default: 4)
      * @param qjl Referência para o objeto QJL já inicializado
+     * @throws std::invalid_argument se n_bits fora do range [1,8]
      */
     explicit PolarQuant(int n_bits = 4, const QJL& qjl = QJL(0));
+    
+    /**
+     * @brief Validar ponteiros de entrada antes de uso
+     * @param data Ponteiro a validar
+     * @param name Nome do parâmetro para mensagem de erro
+     * @throws std::invalid_argument se data for null
+     */
+    static void validate_pointer(const void* data, const char* name);
     
     /**
      * @brief Codificar resíduos em representação polar

@@ -11,8 +11,23 @@ PolarQuant::PolarQuant(int n_bits, const QJL& qjl)
     , angle_range_(M_PI)  // [0, pi]
     , level_size_(M_PI / n_levels_)
 {
+    // Validação de null pointer para qjl (se aplicável)
+    // Nota: qjl é passado por referência, então não pode ser null
+    // mas validamos que foi inicializado corretamente
+    
     if (n_bits < 1 || n_bits > 8) {
         throw std::invalid_argument("PolarQuant: n_bits deve estar entre 1 e 8");
+    }
+    
+    // Validar que n_levels_ não overflow
+    if (n_levels_ <= 0 || n_levels_ > 256) {
+        throw std::invalid_argument("PolarQuant: overflow em n_levels");
+    }
+}
+
+void PolarQuant::validate_pointer(const void* data, const char* name) {
+    if (data == nullptr) {
+        throw std::invalid_argument(name);
     }
 }
 
@@ -49,17 +64,40 @@ size_t PolarQuant::get_encoded_size(size_t n_dim, size_t batch_size) const {
 void PolarQuant::pack_angles(const std::vector<uint8_t>& codes,
                              std::vector<uint8_t>& packed) const {
     size_t n_codes = codes.size();
-    size_t packed_size = (n_codes * n_bits_ + 7) / 8;
+    
+    // Validar overflow antes de calcular
+    if (n_codes > SIZE_MAX / n_bits_) {
+        throw std::overflow_error("PolarQuant: overflow em pack_angles");
+    }
+    
+    size_t total_bits = n_codes * n_bits_;
+    size_t packed_size = (total_bits + 7) / 8;
+    
+    // Validar tamanho máximo do buffer
+    if (packed_size > SIZE_MAX) {
+        throw std::overflow_error("PolarQuant: buffer overflow em pack_angles");
+    }
     
     packed.resize(packed_size);
     std::memset(packed.data(), 0, packed_size);
     
     size_t bit_pos = 0;
+    size_t max_bit_pos = packed_size * 8;
+    
     for (size_t i = 0; i < n_codes; ++i) {
         uint8_t code = codes[i];
         
+        // Validar bounds antes de acessar
+        if (bit_pos >= max_bit_pos) {
+            throw std::out_of_range("PolarQuant: buffer overflow em pack_angles");
+        }
+        
         // Escrever n_bits_ bits
         for (int b = 0; b < n_bits_; ++b) {
+            if (bit_pos >= max_bit_pos) {
+                throw std::out_of_range("PolarQuant: buffer overflow em pack_angles (bit)");
+            }
+            
             if (code & (1 << b)) {
                 packed[bit_pos / 8] |= (1 << (bit_pos % 8));
             }
@@ -71,14 +109,33 @@ void PolarQuant::pack_angles(const std::vector<uint8_t>& codes,
 void PolarQuant::unpack_angles(const std::vector<uint8_t>& packed,
                                std::vector<uint8_t>& codes,
                                size_t n_codes) const {
+    // Validar overflow
+    if (n_codes > SIZE_MAX / n_bits_) {
+        throw std::overflow_error("PolarQuant: overflow em unpack_angles");
+    }
+    
+    size_t total_bits = n_codes * n_bits_;
+    size_t required_bytes = (total_bits + 7) / 8;
+    
+    // Validar bounds do buffer packed
+    if (packed.size() < required_bytes) {
+        throw std::out_of_range("PolarQuant: buffer packed muito pequeno em unpack_angles");
+    }
+    
     codes.resize(n_codes);
     
     size_t bit_pos = 0;
+    size_t max_bit_pos = packed.size() * 8;
+    
     for (size_t i = 0; i < n_codes; ++i) {
         uint8_t code = 0;
         
-        // Ler n_bits_ bits
+        // Ler n_bits_ bits com bounds checking
         for (int b = 0; b < n_bits_; ++b) {
+            if (bit_pos >= max_bit_pos) {
+                throw std::out_of_range("PolarQuant: buffer overflow em unpack_angles (bit)");
+            }
+            
             if (packed[bit_pos / 8] & (1 << (bit_pos % 8))) {
                 code |= (1 << b);
             }
@@ -92,8 +149,23 @@ void PolarQuant::unpack_angles(const std::vector<uint8_t>& packed,
 std::vector<uint8_t> PolarQuant::encode(const std::vector<float>& residues,
                                          size_t n_dim,
                                          size_t batch_size) {
+    // Validação de null pointer (vector já é seguro, mas validamos tamanho)
+    if (residues.empty()) {
+        throw std::invalid_argument("PolarQuant: residues vazio");
+    }
+    
+    // Validar overflow em n_dim * batch_size
+    if (n_dim > 0 && batch_size > SIZE_MAX / n_dim) {
+        throw std::overflow_error("PolarQuant: overflow em n_dim * batch_size");
+    }
+    
     if (residues.size() != n_dim * batch_size) {
         throw std::invalid_argument("PolarQuant: tamanho de residues incorreto");
+    }
+    
+    // Validar n_dim e batch_size
+    if (n_dim == 0 || batch_size == 0) {
+        throw std::invalid_argument("PolarQuant: n_dim e batch_size devem ser > 0");
     }
     
     // Passo 1: Converter resíduos para ângulos
@@ -118,7 +190,23 @@ std::vector<uint8_t> PolarQuant::encode(const std::vector<float>& residues,
 std::vector<float> PolarQuant::decode(const std::vector<uint8_t>& encoded,
                                       size_t n_dim,
                                       size_t batch_size) {
+    // Validar overflow
+    if (n_dim > 0 && batch_size > SIZE_MAX / n_dim) {
+        throw std::overflow_error("PolarQuant: overflow em n_dim * batch_size (decode)");
+    }
+    
     size_t n_codes = n_dim * batch_size;
+    
+    // Validar n_codes
+    if (n_codes == 0) {
+        throw std::invalid_argument("PolarQuant: n_codes deve ser > 0");
+    }
+    
+    // Validar tamanho mínimo do buffer encoded
+    size_t min_encoded_size = (n_codes * n_bits_ + 7) / 8;
+    if (encoded.size() < min_encoded_size) {
+        throw std::invalid_argument("PolarQuant: buffer encoded muito pequeno");
+    }
     
     // Passo 1: Desempacotar códigos
     std::vector<uint8_t> codes;

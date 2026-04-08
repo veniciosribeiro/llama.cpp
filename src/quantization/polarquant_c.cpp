@@ -31,7 +31,19 @@ int polarquant_encode(const polarquant_ctx_t* ctx,
                       size_t batch_size,
                       uint8_t* output,
                       size_t output_size) {
-    if (!ctx || !residues || !output) {
+    // Validação de null pointer
+    if (!ctx) {
+        return -1;
+    }
+    if (!residues) {
+        return -1;
+    }
+    if (!output) {
+        return -1;
+    }
+    
+    // Validar overflow em n_dim * batch_size
+    if (n_dim > 0 && batch_size > SIZE_MAX / n_dim) {
         return -1;
     }
     
