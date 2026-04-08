@@ -16,6 +16,8 @@ if (GGML_TURBOQUANT)
         ${CMAKE_CURRENT_SOURCE_DIR}/src/quantization/codebook_mse_c.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/quantization/turboquant.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/quantization/turboquant_c.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/quantization/kv_cache_quant.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/quantization/kv_allocator.cpp
     )
     
     set(TURBOQUANT_HEADERS
@@ -27,6 +29,8 @@ if (GGML_TURBOQUANT)
         ${CMAKE_CURRENT_SOURCE_DIR}/src/quantization/polarquant.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/quantization/codebook_mse.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/quantization/turboquant.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/quantization/kv_cache_quant.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/quantization/kv_allocator.hpp
     )
     
     # Add library
@@ -94,6 +98,9 @@ if (GGML_TURBOQUANT)
         
         add_executable(test-turboquant tests/test_turboquant.cpp)
         target_link_libraries(test-turboquant PRIVATE ggml-turboquant)
+        
+        add_executable(test-kv-cache-quant tests/test_kv_cache_quant.cpp)
+        target_link_libraries(test-kv-cache-quant PRIVATE ggml-turboquant)
         
         if (GGML_CUDA AND TARGET ggml-turboquant-cuda)
             target_link_libraries(test-turboquant PRIVATE ggml-turboquant-cuda)
