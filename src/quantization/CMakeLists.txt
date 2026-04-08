@@ -10,14 +10,18 @@ if (GGML_TURBOQUANT)
     # Source files
     set(TURBOQUANT_SOURCES
         ${CMAKE_CURRENT_SOURCE_DIR}/src/quantization/qjl.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/quantization/polarquant.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/quantization/polarquant_c.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/quantization/turboquant.cpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/quantization/codebook_mse.cpp
     )
     
     set(TURBOQUANT_HEADERS
         ${CMAKE_CURRENT_SOURCE_DIR}/include/llama/quant/qjl.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/include/llama/quant/polarquant.h
         ${CMAKE_CURRENT_SOURCE_DIR}/include/llama/quant/turboquant.h
         ${CMAKE_CURRENT_SOURCE_DIR}/src/quantization/qjl.hpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/src/quantization/polarquant.hpp
         ${CMAKE_CURRENT_SOURCE_DIR}/src/quantization/turboquant.hpp
     )
     
@@ -77,6 +81,9 @@ if (GGML_TURBOQUANT)
         
         add_executable(test-qjl tests/test_qjl.cpp)
         target_link_libraries(test-qjl PRIVATE ggml-turboquant)
+        
+        add_executable(test-polarquant tests/test_polarquant.cpp)
+        target_link_libraries(test-polarquant PRIVATE ggml-turboquant)
         
         add_executable(test-turboquant tests/test_turboquant.cpp)
         target_link_libraries(test-turboquant PRIVATE ggml-turboquant)
