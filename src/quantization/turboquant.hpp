@@ -1,45 +1,76 @@
 // TurboQuant Internal Implementation Header
+// Integração QJL + CodebookMSE/PolarQuant
 
 #ifndef TURBOQUANT_IMPL_HPP
 #define TURBOQUANT_IMPL_HPP
 
 #include "turboquant.h"
 #include "qjl.hpp"
+#include "codebook_mse.hpp"
+#include "polarquant.hpp"
 #include <vector>
 #include <memory>
+#include <random>
 
 namespace llama::quant {
 
 /**
- * TurboQuant Quantizer Implementation
+ * @brief TurboQuant Quantizer - Integração QJL + CodebookMSE/PolarQuant
  * 
- * Internal C++ implementation of TurboQuant algorithm.
+ * Implementa o algoritmo TurboQuant de dois estágios:
+ * 1. Rotação aleatória (ortogonal)
+ * 2. Quantização MSE (b-1 bits) via CodebookMSE ou PolarQuant
+ * 3. Quantização QJL do residual (1 bit)
+ * 4. Empacotamento compacto
+ * 
+ * **Arquitetura:**
+ * ```
+ * Input float[dim]
+ *     ↓
+ * [Rotação Aleatória]
+ *     ↓
+ * [MSE Quantizer] → índices (b-1 bits)
+ *     ↓
+ * [Calcular Residual] r = x_rot - x_mse
+ *     ↓
+ * [QJL 1-bit] → signs + norm
+ *     ↓
+ * Output: packed(indices + signs + norm)
+ * ```
+ * 
+ * **Target:** 3.5 bits/dim (vs 16 bits full precision)
+ * **Economia:** ~78% redução de memória
+ * 
+ * @see CodebookMSE para quantização MSE ótima
+ * @see QJL para quantização residual 1-bit
+ * @see TurboQuant Paper: https://arxiv.org/abs/2504.19874
  */
 class TurboQuantizer {
 public:
     /**
-     * Construct TurboQuant quantizer
+     * @brief Construtor
      * 
-     * @param params Quantization parameters
+     * @param params Parâmetros de quantização
+     * @param use_polar Se true, usa PolarQuant; caso contrário, CodebookMSE
      */
-    explicit TurboQuantizer(const turboquant_params_t& params);
+    explicit TurboQuantizer(const turboquant_params_t& params, bool use_polar = false);
     
     ~TurboQuantizer();
     
     /**
-     * Quantize a single vector
+     * @brief Quantizar vetor único
      * 
-     * @param input Input vector [dim]
-     * @param output Output quantized representation
+     * @param input Vetor de entrada [dim]
+     * @param output Estrutura quantizada de saída
      */
     void quantize(const float* input, turboquant_vector_t& output);
     
     /**
-     * Quantize a batch of vectors
+     * @brief Quantizar batch de vetores
      * 
-     * @param input Input vectors [batch_size x dim]
-     * @param outputs Output quantized representations [batch_size]
-     * @param batch_size Number of vectors
+     * @param input Vetores de entrada [batch_size x dim]
+     * @param outputs Saídas quantizadas [batch_size]
+     * @param batch_size Número de vetores
      */
     void quantize_batch(
         const float* input,
@@ -48,19 +79,19 @@ public:
     );
     
     /**
-     * Dequantize a single vector
+     * @brief Dequantizar vetor único
      * 
-     * @param input Quantized vector
-     * @param output Output reconstructed vector [dim]
+     * @param input Vetor quantizado
+     * @param output Vetor reconstruído [dim]
      */
     void dequantize(const turboquant_vector_t& input, float* output);
     
     /**
-     * Dequantize a batch of vectors
+     * @brief Dequantizar batch de vetores
      * 
-     * @param inputs Quantized vectors [batch_size]
-     * @param outputs Output reconstructed vectors [batch_size x dim]
-     * @param batch_size Number of vectors
+     * @param inputs Vetores quantizados [batch_size]
+     * @param outputs Vetores reconstruídos [batch_size x dim]
+     * @param batch_size Número de vetores
      */
     void dequantize_batch(
         const turboquant_vector_t* inputs,
@@ -69,22 +100,24 @@ public:
     );
     
     /**
-     * Compute inner product with full-precision query
+     * @brief Calcular produto interno assimétrico (query full-precision, key quantizado)
      * 
-     * @param query Full-precision query vector [dim]
-     * @param key Quantized key vector
-     * @return Inner product
+     * Usa estimador QJL assimétrico: (√(π/2)/m) × ||k||₂ × ⟨Sq, sign(Sk)⟩
+     * 
+     * @param query Query full-precision [dim]
+     * @param key Key quantizado
+     * @return Produto interno estimado
      */
     float inner_product(const float* query, const turboquant_vector_t& key);
     
     /**
-     * Compute inner products for batch
+     * @brief Calcular produtos internos em batch
      * 
-     * @param queries Full-precision queries [num_queries x dim]
-     * @param keys Quantized keys [num_keys]
-     * @param results Output results [num_queries x num_keys]
-     * @param num_queries Number of queries
-     * @param num_keys Number of keys
+     * @param queries Queries full-precision [num_queries x dim]
+     * @param keys Keys quantizados [num_keys]
+     * @param results Matriz de resultados [num_queries x num_keys]
+     * @param num_queries Número de queries
+     * @param num_keys Número de keys
      */
     void inner_product_batch(
         const float* queries,
@@ -95,101 +128,118 @@ public:
     );
     
     /**
-     * Get quantized size in bytes
+     * @brief Obter tamanho do vetor quantizado em bytes
      */
     size_t get_quantized_size() const;
     
     /**
-     * Get compression ratio
+     * @brief Obter taxa de compressão
+     * 
+     * @return Razão entre tamanho quantizado e full precision
      */
     float get_compression_ratio() const;
     
     /**
-     * Get parameters
+     * @brief Obter parâmetros
      */
     const turboquant_params_t& get_params() const { return params_; }
+    
+    /**
+     * @brief Verificar se quantizador está treinado
+     */
+    bool is_trained() const { return trained_; }
 
 private:
     /**
-     * Generate random rotation matrix
+     * @brief Gerar matriz de rotação aleatória (ortogonal)
      * 
-     * Uses QR decomposition of random Gaussian matrix.
+     * Usa decomposição QR de matriz Gaussiana aleatória.
      */
     void generate_rotation_matrix();
     
     /**
-     * Apply rotation to vector
+     * @brief Aplicar rotação a vetor
      * 
-     * @param input Input vector
-     * @param output Output rotated vector
+     * @param input Vetor de entrada [dim]
+     * @param output Vetor rotacionado [dim]
      */
     void apply_rotation(const float* input, float* output);
     
     /**
-     * Apply inverse rotation
+     * @brief Aplicar rotação inversa
      * 
-     * @param input Input rotated vector
-     * @param output Output original vector
+     * @param input Vetor rotacionado [dim]
+     * @param output Vetor original [dim]
      */
     void apply_inverse_rotation(const float* input, float* output);
     
     /**
-     * MSE quantization stage
+     * @brief Quantização MSE (estágio 1)
      * 
-     * @param input Input vector
-     * @param indices Output codebook indices
-     * @param residual Output residual vector (for QJL stage)
+     * @param input Vetor rotacionado [dim]
+     * @param indices Índices do codebook [ceil(dim * (b-1) / 8)]
+     * @param residual Resíduo para QJL [dim]
      */
-    void mse_quantize(
-        const float* input,
-        uint8_t* indices,
-        float* residual
-    );
+    void mse_quantize(const float* input, uint8_t* indices, float* residual);
     
     /**
-     * MSE dequantization
+     * @brief Dequantização MSE
      * 
-     * @param indices Codebook indices
-     * @param output Output reconstructed vector
+     * @param indices Índices do codebook
+     * @param output Vetor reconstruído [dim]
      */
     void mse_dequantize(const uint8_t* indices, float* output);
     
     /**
-     * Pre-compute MSE codebook using Lloyd-Max algorithm
+     * @brief Empacotar índices MSE + bits QJL + norma
+     * 
+     * @param mse_indices Índices MSE
+     * @param qjl_bits Bits QJL
+     * @param qjl_norm Norma do QJL
+     * @param output Buffer de saída
      */
-    void precompute_codebook();
+    void pack_output(const uint8_t* mse_indices, const uint8_t* qjl_bits, 
+                     float qjl_norm, turboquant_vector_t& output);
+    
+    /**
+     * @brief Desempacotar índices MSE + bits QJL + norma
+     * 
+     * @param input Buffer quantizado
+     * @param mse_indices Output índices MSE
+     * @param qjl_bits Output bits QJL
+     * @param qjl_norm Output norma QJL
+     */
+    void unpack_input(const turboquant_vector_t& input, uint8_t* mse_indices,
+                      uint8_t* qjl_bits, float& qjl_norm);
 
 private:
     turboquant_params_t params_;
-    QJLQuantizer qjl_quantizer_;
-    std::vector<float> codebook_;         // MSE codebook
-    std::vector<float> rotation_matrix_;  // [dim x dim]
-    std::vector<float> rotation_inv_;     // Inverse rotation
+    bool use_polar_;
+    bool trained_;
+    
+    // Quantizadores (mutuamente exclusivos)
+    std::unique_ptr<CodebookMSE> codebook_mse_;    // Se !use_polar_
+    std::unique_ptr<PolarQuant> polar_quant_;      // Se use_polar_
+    std::unique_ptr<QJLQuantizer> qjl_quantizer_;  // Sempre usado
+    
+    // Rotação
+    std::vector<float> rotation_matrix_;  // [dim x dim], row-major
+    std::vector<float> rotation_inv_;     // [dim x dim], row-major
+    
+    // RNG
     std::mt19937 rng_;
+    
+    // Tamanho dos buffers
+    size_t mse_indices_size_;  // Bytes para índices MSE
+    size_t qjl_bits_size_;     // Bytes para bits QJL
+    size_t total_quant_size_;  // Tamanho total quantizado
 };
 
 /**
- * Lloyd-Max algorithm for MSE-optimal codebook
+ * @brief Gerar codebook Gaussiano para distribuição normal
  * 
- * @param data Input data samples
- * * @param num_samples Number of samples
- * @param codebook_size Desired codebook size
- * @param codebook Output codebook
- * @param max_iterations Maximum iterations
- */
-void lloyd_max(
-    const float* data,
-    size_t num_samples,
-    uint32_t codebook_size,
-    float* codebook,
-    uint32_t max_iterations = 100
-);
-
-/**
- * Generate MSE codebook for Gaussian distribution
- * 
- * @param codebook_size Codebook size
- * @param codebook Output codebook
+ * @param codebook_size Tamanho do codebook
+ * @param codebook Output [codebook_size]
  */
 void generate_gaussian_codebook(uint32_t codebook_size, float* codebook);
 
