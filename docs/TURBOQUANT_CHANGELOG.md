@@ -84,6 +84,77 @@ Todos os scripts tornados executáveis e validados."
 
 ---
 
+## 2026-04-08 - Fase 1 e 2 Implementadas (QJL + PolarQuant)
+
+### 🎯 Fase 1: QJL Core - CONCLUÍDA
+**Commit:** `8a8b92352`  
+**Arquivos:** 7 arquivos, +1.544 linhas
+
+**Implementado:**
+- ✅ `qjl.h` / `qjl.cpp`: API C completa para quantização 1-bit
+- ✅ `qjl.hpp`: Implementação C++ com matriz JL esparsa
+- ✅ Geração determinística de matriz JL (seed=42)
+- ✅ Quantização batch e estimativa de inner product
+- ✅ 10 testes unitários (functional + performance)
+- ✅ CMakeLists.txt configurado com `GGML_TURBOQUANT`
+
+**Decisões Técnicas:**
+- Seed fixa = 42 para reprodutibilidade
+- Matriz JL determinística (não aleatória por run)
+- Projeção para dimensão reduzida antes de 1-bit
+
+### 🎯 Fase 2: PolarQuant Core - CONCLUÍDA
+**Commit:** `0b15c12bf`  
+**Arquivos:** 6 arquivos, +829 linhas
+
+**Implementado:**
+- ✅ `polarquant.h`: API C pública para PolarQuant
+- ✅ `polarquant.hpp` / `polarquant.cpp`: Implementação C++ completa
+  - Codificação polar: resíduo → ângulo (atan)
+  - Quantização angular: 1-8 bits configurável
+  - Decodificação: ângulo → resíduo (tan)
+  - Empacotamento eficiente de bits
+- ✅ `polarquant_c.cpp`: Wrapper C para API
+- ✅ 14 testes unitários:
+  - Funcionais (roundtrip encode/decode)
+  - Precisão (1, 2, 4, 8 bits)
+  - Performance (batch 4096x32)
+  - Integração QJL + PolarQuant
+  - Edge cases (zero, grandes, sinais mistos)
+- ✅ CMakeLists.txt atualizado
+
+**Decisões Técnicas:**
+- Range angular: [0, π]
+- Mapeamento não-linear: `atan(residue)` para compressão
+- Bits configuráveis (1-8) via construtor
+- Validação: lança exceção se n_bits fora do range
+
+### 📊 Status Atual
+**Fase 1:** ✅ CONCLUÍDA (QJL Core)  
+**Fase 2:** ✅ CONCLUÍDA (PolarQuant Core)  
+**Fase 2 (cont.):** ⏳ Integração QJL + PolarQuant  
+**Fase 3:** ⏳ Aguardando (Otimizações CUDA, Benchmarks)
+
+### 🔄 Code Review Pendente
+- **Task #2:** Review QJL Core (commit `8a8b92352`) - Assignee: `code-reviewer`
+- **Task #3:** Review PolarQuant (commit `0b15c12bf`) - Assignee: `code-reviewer`
+
+### 📋 Próximos Passos
+1. Aguardar aprovação do code-reviewer
+2. Implementar integração QJL + PolarQuant (pipeline completo)
+3. Implementar TurboQuant wrapper (unificar QJL + PolarQuant)
+4. Otimizações CUDA (se necessário)
+5. Benchmarks de performance
+
+### 📈 Métricas Esperadas
+| Componente | Bits | Compressão |
+|------------|------|------------|
+| QJL (1-bit) | 1.0 | 16x |
+| PolarQuant (4 bits) | 4.0 | 4x |
+| **TurboQuant (combinado)** | **3.5** | **~4.57x** |
+
+---
+
 ## Como Usar Este Arquivo
 
 Registre aqui:
